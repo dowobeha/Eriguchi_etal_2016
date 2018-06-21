@@ -1,0 +1,13 @@
+global {
+       # Replace these with your own
+
+       ducttape_output="/projects/cl/enju/results"
+
+       aspec_tgz="/projects/cl/ASPEC.tar.gz"
+
+       parallel_threads=56
+
+       aspec_max_lines=1500000
+
+       aspec_max_sentence_length=50
+}
