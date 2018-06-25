@@ -11,6 +11,20 @@ task parallel
 	make install
 }
 
+task filter_enju
+     :: repo="git@github.com:dowobeha/filter_enju.git"
+     :: ref="759af906078c1b9878d3162b03a784d3345e1d21"
+      > filter_enju
+{
+	git init
+	git remote add origin "${repo}"
+	git fetch
+	git checkout -t origin/master
+	git checkout "${ref}"
+
+	make
+}
+
 
 task enju
      :: repo="git@github.com:mynlp/enju.git"
@@ -36,10 +50,11 @@ task aspec
      :: corpus=(Corpus: train dev devtest test)
      :: tarball=${aspec_tgz}
      :: max_lines=${aspec_max_lines}
+     :: ja_field=(Corpus: train=4 dev=3 devtest=3 test=3)
+     :: en_field=(Corpus: train=5 dev=4 devtest=4 test=4)
       > en
       > ja
 {
-
 	echo "Extracting ASPEC-JE ${corpus} data from ${tarball} ..."
 	tar xfvz ${tarball} ASPEC/ASPEC-JE/${corpus} --strip-components=3
 
@@ -50,10 +65,10 @@ task aspec
 	head -n ${max_lines} <(cat ${corpus}*.txt) | sed 's, ||| ,\t,g' > ${corpus}.tsv
 
 	echo "Extracting Japanese side of parallel ${corpus} data..."
-	cut -f 4 < ${corpus}.tsv     > ja
+	cut -f ${ja_field} < ${corpus}.tsv     > ja
 
 	echo "Extracting English side of parallel files..."
-	cut -f 5 < ${corpus}.tsv     > en
+	cut -f ${en_field} < ${corpus}.tsv     > en
 
 	echo Removing ${corpus}*.txt
 	rm ${corpus}*.txt
@@ -68,7 +83,7 @@ task parse
      < parallel=@parallel
      < enju=@enju
      > out
-     :: parallel_threads=@
+     :: parallel_threads=(Corpus: train=$parallel_threads dev=1 devtest=1 test=1)
      :: max_sentence_length=${aspec_max_sentence_length}
 {
 #	lines_total=$(wc -l ${in} | cut -d " " -f 1)
@@ -81,11 +96,40 @@ task parse
 
 #	split --lines=${lines_per_part} --numeric-suffixes --suffix-length=${suffix_length} ${in} part
 
-	cat ${in} | ${parallel} --pipe -j${parallel_threads} ${enju} -xml -W ${max_sentence_length} > ${out}
+	if (( ${parallel_threads} > 1 )); then
+		cat ${in} | ${parallel} --pipe -j${parallel_threads} ${enju} -xml -W ${max_sentence_length} > ${out}
+	else
+		cat ${in} |                                          ${enju} -xml -W ${max_sentence_length} > ${out}
+	fi
+
 }
+
+
+
+
+task filter
+     < in_enju=$out@parse
+     < in_ja=$ja@aspec
+     < parallel=@parallel
+     < filter_enju=@filter_enju
+     > out_en="out.en"
+     > out_enju="out.enju"
+     > out_ja="out.ja"
+     :: parallel_threads=(Corpus: train=$parallel_threads dev=1 devtest=1 test=1)
+     :: max_sentence_length=${aspec_max_sentence_length}
+{
+	if (( ${parallel_threads} > 1 )); then
+		${parallel} --pipe -j${parallel_threads} ${filter_enju} ${in_enju} ${in_ja} ${max_sentence_length} ${out_en} ${out_enju} ${out_ja}
+	else
+		                                         ${filter_enju} ${in_enju} ${in_ja} ${max_sentence_length} ${out_en} ${out_enju} ${out_ja}
+	fi
+}
+
 
 plan {
      reach parallel
      reach enju
-     reach aspec, parse via (Corpus: train dev devtest test)
+     reach aspec via (Corpus: train dev devtest test)
+     reach parse via (Corpus: train dev devtest test)
+     reach filter via (Corpus: train dev devtest test)
 }
