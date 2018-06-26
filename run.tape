@@ -161,7 +161,73 @@ task tokenize
 	   cat ${in_ja} |                                          ${kytea} -out tok > ${out_ja}
 	fi
 }
-     
+
+
+task dict
+     < in_en=$out_en@tokenize[MaxLength:50,Corpus:*]
+     < in_ja=$out_ja@tokenize[MaxLength:50,Corpus:*]
+     > dict_en
+     > dict_ja
+     > script="script.py"
+{
+#	cat ${txt} | sed 's,\s\s*,\n,g' | sort | uniq | cat -n | awk '{ print $2 " " $1}' > dict
+
+cat > ${script} <<EOF
+#!/usr/bin/env python3
+
+import sys
+
+str2int={}
+int2str=[None]
+
+for line in sys.stdin:
+    words=line.strip().lower().split()
+    for word in words:
+        if word not in str2int:
+            i = len(int2str)
+            str2int[word] = i
+            int2str.append(word)
+            print(word,i)
+EOF
+
+	chmod ug+x ${script}
+
+	cat ${in_en} | ${script} > ${dict_en}
+	cat ${in_ja} | ${script} > ${dict_ja}
+
+}
+
+task ints
+     < dict_en=@dict
+     < dict_ja=@dict
+     < in_en=$out_en@tokenize
+     < in_ja=$out_ja@tokenize
+     > out_en="en.ints"
+     > out_ja="ja.ints"
+     > script="script.py"
+{
+
+cat > ${script} <<EOF
+#!/usr/bin/env python3
+
+import sys
+
+str2int={}
+with open(sys.argv[1], encoding="utf8") as dictfile:
+     for line in dictfile:
+         word, n = line.strip().split()
+         str2int[word] = n
+
+for line in sys.stdin:
+    print([str2int[word] for word in line.strip().lower().split()])
+
+EOF
+
+	chmod ug+x ${script}
+	cat ${in_en} | ${script} ${dict_en} > ${out_en}
+	cat ${in_ja} | ${script} ${dict_ja} > ${out_ja}
+}
+
 
 plan {
      reach parallel
@@ -171,4 +237,5 @@ plan {
      reach filter via (Corpus: train dev devtest test) * (MaxLength: 50 20 10)
      reach tokenize via (Corpus: train dev devtest test) * (MaxLength: 50 20 10)
      reach ptb via (Corpus: train dev devtest test) * (MaxLength: 50 20 10)
+     reach ints via (Corpus: train dev devtest test) * (MaxLength: 50 20 10)
 }
