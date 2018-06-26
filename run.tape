@@ -46,6 +46,17 @@ task enju
 	make install
 }
 
+task kytea
+     :: url="http://www.phontron.com/kytea/download/kytea-0.4.7.tar.gz"
+      > kytea="bin/kytea"
+{
+	wget "${url}" -O kytea.tgz
+	tar xfvz kytea.tgz --strip-components=1
+	./configure --prefix=$(pwd)
+	make
+	make install
+}
+
 task aspec
      :: corpus=(Corpus: train dev devtest test)
      :: tarball=${aspec_tgz}
@@ -116,7 +127,7 @@ task filter
      > out_enju="out.enju"
      > out_ja="out.ja"
      :: parallel_threads=(Corpus: train=$parallel_threads dev=1 devtest=1 test=1)
-     :: max_sentence_length=${aspec_max_sentence_length}
+     :: max_sentence_length=(MaxLength: 50 40 30 20 10)
 {
 	if (( ${parallel_threads} > 1 )); then
 		${parallel} --pipe -j${parallel_threads} ${filter_enju} ${in_enju} ${in_ja} ${max_sentence_length} ${out_en} ${out_enju} ${out_ja}
@@ -125,11 +136,39 @@ task filter
 	fi
 }
 
+task ptb
+     < in_enju=$out_enju@filter
+     < enju2ptb=@enju
+     > out
+{
+	${enju2ptb} < ${in_enju} > ${out}
+}
+
+task tokenize
+     < kytea=@kytea
+     < parallel=@parallel
+     < in_en=$out_en@filter
+     < in_ja=$out_ja@filter
+     > out_en="out.en"
+     > out_ja="out.ja"
+    :: parallel_threads=(Corpus: train=$parallel_threads dev=1 devtest=1 test=1) 
+{
+	ln -s ${in_en} ${out_en}
+	
+	if (( ${parallel_threads} > 1 )); then
+	   cat ${in_ja} | ${parallel} --pipe -j${parallel_threads} ${kytea} -out tok > ${out_ja}
+	else
+	   cat ${in_ja} |                                          ${kytea} -out tok > ${out_ja}
+	fi
+}
+     
 
 plan {
      reach parallel
      reach enju
      reach aspec via (Corpus: train dev devtest test)
      reach parse via (Corpus: train dev devtest test)
-     reach filter via (Corpus: train dev devtest test)
+     reach filter via (Corpus: train dev devtest test) * (MaxLength: 50 20 10)
+     reach tokenize via (Corpus: train dev devtest test) * (MaxLength: 50 20 10)
+     reach ptb via (Corpus: train dev devtest test) * (MaxLength: 50 20 10)
 }
